@@ -365,19 +365,33 @@
         <input type="number" id="m-fixedTokens" min="0" />
       </div>
     </div>
-    <div id="m-tok-tile" class="grid-3" style="display:none">
-      <div class="field field-sm">
-        <label>Base (tokens)</label>
-        <input type="number" id="m-tileBase" min="0" />
+    <div id="m-tok-tile" style="display:none">
+      <div class="grid-3">
+        <div class="field field-sm">
+          <label>Base (tokens)</label>
+          <input type="number" id="m-tileBase" min="0" />
+        </div>
+        <div class="field field-sm">
+          <label>Taille tuile (px)</label>
+          <input type="number" id="m-tileSize" min="1" />
+        </div>
+        <div class="field field-sm">
+          <label>Tokens par tuile</label>
+          <input type="number" id="m-tilePerTile" min="0" />
+        </div>
       </div>
-      <div class="field field-sm">
-        <label>Taille tuile (px)</label>
-        <input type="number" id="m-tileSize" min="1" />
+      <div class="grid">
+        <div class="field field-sm">
+          <label>Max côté le + long (px, 0 = off)</label>
+          <input type="number" id="m-maxLongest" min="0" />
+        </div>
+        <div class="field field-sm">
+          <label>Cible côté le + court (px, 0 = off)</label>
+          <input type="number" id="m-targetShortest" min="0" />
+        </div>
       </div>
-      <div class="field field-sm">
-        <label>Tokens par tuile</label>
-        <input type="number" id="m-tilePerTile" min="0" />
-      </div>
+      <div class="help">L'image est virtuellement redimensionnée avant le comptage de tuiles : d'abord pour ramener le côté le plus long sous la limite, puis pour réduire le côté le plus court à la cible. Comme GPT-4o vision (2048 / 768).</div>
+      <div id="m-tile-preview" class="help" style="margin-top:8px; padding:8px 10px; background:var(--panel-2); border:1px solid var(--border); border-radius:6px;"></div>
     </div>
 
     <h4>Presets de sortie (résolution / qualité)</h4>
@@ -423,7 +437,7 @@
       imageOutputPer1M: 40.00,
       flatPerInputImage: 0,
       flatPerOutputImage: 0,
-      inputTokenizer: { mode: 'tile', base: 85, tileSize: 512, tilePerTile: 170 },
+      inputTokenizer: { mode: 'tile', base: 85, tileSize: 512, tilePerTile: 170, maxLongestSide: 2048, targetShortestSide: 768 },
       outputPresets: [
         { id: 'p1', label: '1024×1024 low',     width: 1024, height: 1024, quality: 'low',    tokens: 272  },
         { id: 'p2', label: '1024×1024 medium',  width: 1024, height: 1024, quality: 'medium', tokens: 1056 },
@@ -492,12 +506,40 @@
     return Math.ceil(text.length / 4);
   }
 
+  // Apply optional resize caps used by GPT-style vision tokenizers:
+  //   1. Scale down so longest side <= maxLongestSide (if set, > 0)
+  //   2. Scale down so shortest side <= targetShortestSide (if set, > 0)
+  // Both steps preserve aspect ratio. Returns { w, h } after virtual resize.
+  function applyResizeCaps(w, h, maxLongest, targetShortest) {
+    let W = w || 0, H = h || 0;
+    if (W <= 0 || H <= 0) return { w: 0, h: 0 };
+    if (maxLongest && maxLongest > 0) {
+      const longest = Math.max(W, H);
+      if (longest > maxLongest) {
+        const k = maxLongest / longest;
+        W = Math.round(W * k);
+        H = Math.round(H * k);
+      }
+    }
+    if (targetShortest && targetShortest > 0) {
+      const shortest = Math.min(W, H);
+      if (shortest > targetShortest) {
+        const k = targetShortest / shortest;
+        W = Math.round(W * k);
+        H = Math.round(H * k);
+      }
+    }
+    return { w: W, h: H };
+  }
+
   function tokensForInputImage(model, w, h) {
     const t = model.inputTokenizer || { mode: 'fixed', fixedTokens: 0 };
     if (t.mode === 'tile') {
       const tile = Math.max(1, t.tileSize || 512);
-      const cols = Math.ceil((w || 1) / tile);
-      const rows = Math.ceil((h || 1) / tile);
+      const sized = applyResizeCaps(w, h, t.maxLongestSide || 0, t.targetShortestSide || 0);
+      if (sized.w === 0 || sized.h === 0) return t.base || 0;
+      const cols = Math.ceil(sized.w / tile);
+      const rows = Math.ceil(sized.h / tile);
       return (t.base || 0) + cols * rows * (t.tilePerTile || 0);
     }
     return t.fixedTokens || 0;
@@ -707,6 +749,9 @@
     $('m-tileBase').value = tk.base || 0;
     $('m-tileSize').value = tk.tileSize || 512;
     $('m-tilePerTile').value = tk.tilePerTile || 0;
+    $('m-maxLongest').value = tk.maxLongestSide || 0;
+    $('m-targetShortest').value = tk.targetShortestSide || 0;
+    updateTilePreview();
 
     presetDraft = (m.outputPresets || []).map(p => ({ ...p }));
     renderPresetEditor();
@@ -721,6 +766,43 @@
     $('m-tok-mode').querySelectorAll('button').forEach(b => {
       b.classList.toggle('active', b.dataset.mode === mode);
     });
+    if (mode === 'tile') updateTilePreview();
+  }
+
+  function updateTilePreview() {
+    const el = $('m-tile-preview');
+    if (!el) return;
+    const t = {
+      mode: 'tile',
+      base: num($('m-tileBase').value),
+      tileSize: Math.max(1, num($('m-tileSize').value) || 512),
+      tilePerTile: num($('m-tilePerTile').value),
+      maxLongestSide: Math.max(0, num($('m-maxLongest').value)),
+      targetShortestSide: Math.max(0, num($('m-targetShortest').value)),
+    };
+    const fakeModel = { inputTokenizer: t };
+    const samples = [
+      { label: '512×512',   w: 512,  h: 512  },
+      { label: '1024×1024', w: 1024, h: 1024 },
+      { label: '1920×1080', w: 1920, h: 1080 },
+      { label: '4K (3840×2160)', w: 3840, h: 2160 },
+    ];
+    const lines = samples.map(s => {
+      const sized = applyResizeCaps(s.w, s.h, t.maxLongestSide, t.targetShortestSide);
+      const tok = tokensForInputImage(fakeModel, s.w, s.h);
+      const resized = (sized.w !== s.w || sized.h !== s.h) ? ` → ${sized.w}×${sized.h}` : '';
+      return `<div>${s.label}${resized} : <b style="color:var(--text)">${tok} tok</b></div>`;
+    });
+    if (inputImages.length) {
+      lines.push('<div style="margin-top:6px; color:var(--text)">Images uploadées :</div>');
+      inputImages.forEach(im => {
+        const sized = applyResizeCaps(im.width, im.height, t.maxLongestSide, t.targetShortestSide);
+        const tok = tokensForInputImage(fakeModel, im.width, im.height);
+        const resized = (sized.w !== im.width || sized.h !== im.height) ? ` → ${sized.w}×${sized.h}` : '';
+        lines.push(`<div>${escapeHtml(im.name)} (${im.width}×${im.height}${resized}) : <b style="color:var(--text)">${tok} tok</b></div>`);
+      });
+    }
+    el.innerHTML = '<div style="font-weight:600; color:var(--text); margin-bottom:4px">Aperçu</div>' + lines.join('');
   }
   function getTokMode() {
     return $('m-tok-mode').querySelector('button.active')?.dataset.mode || 'fixed';
@@ -778,6 +860,8 @@
             base: num($('m-tileBase').value),
             tileSize: Math.max(1, num($('m-tileSize').value) || 512),
             tilePerTile: num($('m-tilePerTile').value),
+            maxLongestSide: Math.max(0, num($('m-maxLongest').value)),
+            targetShortestSide: Math.max(0, num($('m-targetShortest').value)),
           };
         }
 
@@ -832,6 +916,9 @@
 
   $('m-tok-mode').querySelectorAll('button').forEach(b => {
     b.addEventListener('click', () => setTokMode(b.dataset.mode));
+  });
+  ['m-tileBase', 'm-tileSize', 'm-tilePerTile', 'm-maxLongest', 'm-targetShortest'].forEach(id => {
+    $(id).addEventListener('input', updateTilePreview);
   });
   $('m-add-preset').addEventListener('click', () => {
     presetDraft.push({
