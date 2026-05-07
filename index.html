@@ -355,15 +355,30 @@
     <div class="field">
       <div class="seg" id="m-tok-mode">
         <button data-mode="fixed">Fixe</button>
+        <button data-mode="patch">Par patches (ViT)</button>
         <button data-mode="tile">Par tuiles</button>
       </div>
-      <div class="help">« Fixe » : N tokens par image quelle que soit sa taille (Gemini). « Par tuiles » : base + ⌈W/T⌉×⌈H/T⌉ × tok/tuile (style GPT).</div>
+      <div class="help">« Fixe » : N tokens par image, peu importe la taille (Gemini). « Par patches » : scale longest side à maxSide puis ⌊W/P⌋×⌊H/P⌋ patches, 1 patch = 1 token (GPT Image 2 — reverse-engineered : P=40, maxSide=1568). « Par tuiles » : base + ⌈W/T⌉×⌈H/T⌉ × tok/tuile (style GPT-4o vision).</div>
     </div>
     <div id="m-tok-fixed" class="grid">
       <div class="field field-sm">
         <label>Tokens par image</label>
         <input type="number" id="m-fixedTokens" min="0" />
       </div>
+    </div>
+    <div id="m-tok-patch" style="display:none">
+      <div class="grid">
+        <div class="field field-sm">
+          <label>Taille du patch (px)</label>
+          <input type="number" id="m-patchSize" min="1" />
+        </div>
+        <div class="field field-sm">
+          <label>Max côté le + long (px, 0 = off)</label>
+          <input type="number" id="m-patchMaxLongest" min="0" />
+        </div>
+      </div>
+      <div class="help">L'image est virtuellement redimensionnée pour que le côté le plus long ≤ maxSide (préserve le ratio), puis tokens = ⌊W/P⌋ × ⌊H/P⌋.</div>
+      <div id="m-patch-preview" class="help" style="margin-top:8px; padding:8px 10px; background:var(--panel-2); border:1px solid var(--border); border-radius:6px;"></div>
     </div>
     <div id="m-tok-tile" style="display:none">
       <div class="grid-3">
@@ -424,7 +439,7 @@
 
 <script>
 (() => {
-  const STORAGE_KEY = 'imgcost.models.v2';
+  const STORAGE_KEY = 'imgcost.models.v3';
 
   // Token tables embedded as default presets. These are placeholder/reasonable
   // values; users can edit any of them in the model config modal.
@@ -437,7 +452,8 @@
       imageOutputPer1M: 40.00,
       flatPerInputImage: 0,
       flatPerOutputImage: 0,
-      inputTokenizer: { mode: 'tile', base: 85, tileSize: 512, tilePerTile: 170, maxLongestSide: 2048, targetShortestSide: 768 },
+      // Reverse-engineered (1700×1700 → 1521 tok = 39²): scale longest side to 1568, then floor(W/40) × floor(H/40).
+      inputTokenizer: { mode: 'patch', patchSize: 40, maxLongestSide: 1568 },
       outputPresets: [
         { id: 'p1', label: '1024×1024 low',     width: 1024, height: 1024, quality: 'low',    tokens: 272  },
         { id: 'p2', label: '1024×1024 medium',  width: 1024, height: 1024, quality: 'medium', tokens: 1056 },
@@ -541,6 +557,14 @@
       const cols = Math.ceil(sized.w / tile);
       const rows = Math.ceil(sized.h / tile);
       return (t.base || 0) + cols * rows * (t.tilePerTile || 0);
+    }
+    if (t.mode === 'patch') {
+      const patch = Math.max(1, t.patchSize || 40);
+      const sized = applyResizeCaps(w, h, t.maxLongestSide || 0, 0);
+      if (sized.w === 0 || sized.h === 0) return 0;
+      const cols = Math.floor(sized.w / patch);
+      const rows = Math.floor(sized.h / patch);
+      return cols * rows;
     }
     return t.fixedTokens || 0;
   }
@@ -744,14 +768,17 @@
     $('m-flatOut').value = m.flatPerOutputImage || 0;
 
     const tk = m.inputTokenizer || { mode: 'fixed' };
-    setTokMode(tk.mode || 'fixed');
     $('m-fixedTokens').value = tk.fixedTokens || 0;
+    $('m-patchSize').value = tk.patchSize || 40;
+    $('m-patchMaxLongest').value = tk.mode === 'patch' ? (tk.maxLongestSide || 0) : 1568;
     $('m-tileBase').value = tk.base || 0;
     $('m-tileSize').value = tk.tileSize || 512;
     $('m-tilePerTile').value = tk.tilePerTile || 0;
-    $('m-maxLongest').value = tk.maxLongestSide || 0;
+    $('m-maxLongest').value = tk.mode === 'tile' ? (tk.maxLongestSide || 0) : 2048;
     $('m-targetShortest').value = tk.targetShortestSide || 0;
+    setTokMode(tk.mode || 'fixed');
     updateTilePreview();
+    updatePatchPreview();
 
     presetDraft = (m.outputPresets || []).map(p => ({ ...p }));
     renderPresetEditor();
@@ -762,11 +789,47 @@
 
   function setTokMode(mode) {
     $('m-tok-fixed').style.display = mode === 'fixed' ? '' : 'none';
+    $('m-tok-patch').style.display = mode === 'patch' ? '' : 'none';
     $('m-tok-tile').style.display = mode === 'tile' ? '' : 'none';
     $('m-tok-mode').querySelectorAll('button').forEach(b => {
       b.classList.toggle('active', b.dataset.mode === mode);
     });
     if (mode === 'tile') updateTilePreview();
+    if (mode === 'patch') updatePatchPreview();
+  }
+
+  function updatePatchPreview() {
+    const el = $('m-patch-preview');
+    if (!el) return;
+    const t = {
+      mode: 'patch',
+      patchSize: Math.max(1, num($('m-patchSize').value) || 40),
+      maxLongestSide: Math.max(0, num($('m-patchMaxLongest').value)),
+    };
+    const fakeModel = { inputTokenizer: t };
+    const samples = [
+      { label: '512×512',   w: 512,  h: 512  },
+      { label: '1024×1024', w: 1024, h: 1024 },
+      { label: '1700×1700', w: 1700, h: 1700 },
+      { label: '1920×1080', w: 1920, h: 1080 },
+      { label: '4K (3840×2160)', w: 3840, h: 2160 },
+    ];
+    const lines = samples.map(s => {
+      const sized = applyResizeCaps(s.w, s.h, t.maxLongestSide, 0);
+      const tok = tokensForInputImage(fakeModel, s.w, s.h);
+      const resized = (sized.w !== s.w || sized.h !== s.h) ? ` → ${sized.w}×${sized.h}` : '';
+      return `<div>${s.label}${resized} : <b style="color:var(--text)">${tok} tok</b></div>`;
+    });
+    if (inputImages.length) {
+      lines.push('<div style="margin-top:6px; color:var(--text)">Images uploadées :</div>');
+      inputImages.forEach(im => {
+        const sized = applyResizeCaps(im.width, im.height, t.maxLongestSide, 0);
+        const tok = tokensForInputImage(fakeModel, im.width, im.height);
+        const resized = (sized.w !== im.width || sized.h !== im.height) ? ` → ${sized.w}×${sized.h}` : '';
+        lines.push(`<div>${escapeHtml(im.name)} (${im.width}×${im.height}${resized}) : <b style="color:var(--text)">${tok} tok</b></div>`);
+      });
+    }
+    el.innerHTML = '<div style="font-weight:600; color:var(--text); margin-bottom:4px">Aperçu</div>' + lines.join('');
   }
 
   function updateTilePreview() {
@@ -854,6 +917,12 @@
         const mode = getTokMode();
         if (mode === 'fixed') {
           m.inputTokenizer = { mode: 'fixed', fixedTokens: num($('m-fixedTokens').value) };
+        } else if (mode === 'patch') {
+          m.inputTokenizer = {
+            mode: 'patch',
+            patchSize: Math.max(1, num($('m-patchSize').value) || 40),
+            maxLongestSide: Math.max(0, num($('m-patchMaxLongest').value)),
+          };
         } else {
           m.inputTokenizer = {
             mode: 'tile',
@@ -919,6 +988,9 @@
   });
   ['m-tileBase', 'm-tileSize', 'm-tilePerTile', 'm-maxLongest', 'm-targetShortest'].forEach(id => {
     $(id).addEventListener('input', updateTilePreview);
+  });
+  ['m-patchSize', 'm-patchMaxLongest'].forEach(id => {
+    $(id).addEventListener('input', updatePatchPreview);
   });
   $('m-add-preset').addEventListener('click', () => {
     presetDraft.push({
