@@ -50,7 +50,7 @@
   }
   .card h2 { margin: 0 0 14px 0; font-size: 15px; font-weight: 600; color: var(--text); }
   label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
-  textarea, input[type="text"], input[type="number"] {
+  textarea, input[type="text"], input[type="number"], select {
     width: 100%;
     background: var(--panel-2);
     border: 1px solid var(--border);
@@ -62,7 +62,7 @@
     outline: none;
   }
   textarea { resize: vertical; min-height: 110px; }
-  textarea:focus, input:focus { border-color: var(--accent); }
+  textarea:focus, input:focus, select:focus { border-color: var(--accent); }
   .row { display: flex; gap: 12px; }
   .row > * { flex: 1; }
   .field { margin-bottom: 14px; }
@@ -140,7 +140,7 @@
   .model-row .head {
     display: flex;
     justify-content: space-between;
-    align-items: center;
+    align-items: flex-start;
     gap: 12px;
   }
   .model-row .name { font-weight: 600; font-size: 15px; }
@@ -161,6 +161,15 @@
   .model-row .breakdown div { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; }
   .model-row .breakdown b { color: var(--text); font-weight: 500; display: block; font-variant-numeric: tabular-nums; }
   .model-row .actions { display: flex; gap: 6px; }
+  .model-row .preset-pick {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .model-row .preset-pick select { padding: 4px 6px; font-size: 12px; min-width: 180px; width: auto; }
   .toolbar { display: flex; gap: 8px; flex-wrap: wrap; }
   .badge {
     display: inline-block;
@@ -187,15 +196,21 @@
     border: 1px solid var(--border);
     border-radius: 12px;
     width: 100%;
-    max-width: 640px;
+    max-width: 720px;
     max-height: 90vh;
     overflow-y: auto;
     padding: 22px;
   }
   .modal h3 { margin: 0 0 16px 0; }
+  .modal h4 { margin: 18px 0 10px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
   .modal .grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .modal .grid-3 {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
     gap: 12px;
   }
   .modal .field-sm label { font-size: 12px; }
@@ -212,13 +227,53 @@
   details { margin-top: 8px; }
   details summary { cursor: pointer; color: var(--muted); font-size: 12px; user-select: none; }
   details summary:hover { color: var(--text); }
+  .preset-list { display: flex; flex-direction: column; gap: 6px; }
+  .preset-row {
+    display: grid;
+    grid-template-columns: 1.2fr 0.8fr 0.8fr 0.8fr 0.8fr 32px;
+    gap: 6px;
+    align-items: center;
+  }
+  .preset-row input { padding: 6px 8px; font-size: 12px; }
+  .preset-head { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; }
+  .icon-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    width: 28px; height: 28px;
+    border-radius: 6px;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+    font-size: 16px;
+  }
+  .icon-btn:hover { color: var(--danger); border-color: var(--danger); }
+  .seg {
+    display: inline-flex;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .seg button {
+    background: var(--panel-2);
+    color: var(--muted);
+    border: 0;
+    border-radius: 0;
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 500;
+  }
+  .seg button.active {
+    background: var(--accent);
+    color: #0b1020;
+  }
 </style>
 </head>
 <body>
 <header>
   <div>
     <h1>Image Generation Cost Calculator</h1>
-    <div class="sub">Estime le coût d'une génération d'image selon le modèle, le prompt et les images en entrée.</div>
+    <div class="sub">Estime le coût d'une génération d'image selon le modèle, le prompt, la résolution et les images en entrée.</div>
   </div>
   <div class="toolbar">
     <button class="ghost" id="btn-add-model">+ Modèle</button>
@@ -241,23 +296,18 @@
       <label>Images en entrée</label>
       <div class="dropzone" id="dropzone">
         <div>Glisse-dépose des images ici, ou clique pour choisir</div>
-        <div class="help" style="margin-top:6px">PNG / JPG / WEBP — multiples acceptées</div>
+        <div class="help" style="margin-top:6px">PNG / JPG / WEBP — multiples acceptées. Les tokens d'entrée sont calculés selon la taille réelle de chaque image et la formule du modèle.</div>
         <input type="file" id="file-input" accept="image/*" multiple />
       </div>
       <div class="thumbs" id="thumbs"></div>
     </div>
 
-    <div class="row">
-      <div class="field">
-        <label for="n-images">Images à générer</label>
-        <input type="number" id="n-images" min="1" value="1" />
-      </div>
-      <div class="field">
-        <label for="output-tokens-override">Tokens par image générée (override)</label>
-        <input type="number" id="output-tokens-override" min="0" placeholder="auto (par modèle)" />
-        <div class="help">Laisse vide pour utiliser la valeur par modèle.</div>
-      </div>
+    <div class="field">
+      <label for="n-images">Images à générer</label>
+      <input type="number" id="n-images" min="1" value="1" />
     </div>
+
+    <div class="help">La <b>résolution / qualité de sortie</b> se choisit par modèle dans le panneau de droite (chaque modèle a ses propres presets).</div>
   </section>
 
   <!-- Results -->
@@ -277,46 +327,80 @@
       <input type="text" id="m-name" />
     </div>
 
-    <div class="grid">
+    <h4>Tarifs</h4>
+    <div class="grid-3">
       <div class="field field-sm">
-        <label>Prix texte input ($ / 1M tokens)</label>
+        <label>Texte input ($ / 1M tok)</label>
         <input type="number" id="m-textIn" step="0.01" min="0" />
       </div>
       <div class="field field-sm">
-        <label>Prix image input ($ / 1M tokens)</label>
+        <label>Image input ($ / 1M tok)</label>
         <input type="number" id="m-imgIn" step="0.01" min="0" />
       </div>
       <div class="field field-sm">
-        <label>Prix image output ($ / 1M tokens)</label>
+        <label>Image output ($ / 1M tok)</label>
         <input type="number" id="m-imgOut" step="0.01" min="0" />
       </div>
       <div class="field field-sm">
-        <label>Tokens par image input</label>
-        <input type="number" id="m-tokIn" min="0" />
-      </div>
-      <div class="field field-sm">
-        <label>Tokens par image output</label>
-        <input type="number" id="m-tokOut" min="0" />
-      </div>
-      <div class="field field-sm">
-        <label>Flat $ par image input (en plus)</label>
+        <label>Flat $ / image input</label>
         <input type="number" id="m-flatIn" step="0.0001" min="0" />
       </div>
       <div class="field field-sm">
-        <label>Flat $ par image output (en plus)</label>
+        <label>Flat $ / image output</label>
         <input type="number" id="m-flatOut" step="0.0001" min="0" />
       </div>
     </div>
 
+    <h4>Tokenisation des images d'entrée</h4>
+    <div class="field">
+      <div class="seg" id="m-tok-mode">
+        <button data-mode="fixed">Fixe</button>
+        <button data-mode="tile">Par tuiles</button>
+      </div>
+      <div class="help">« Fixe » : N tokens par image quelle que soit sa taille (Gemini). « Par tuiles » : base + ⌈W/T⌉×⌈H/T⌉ × tok/tuile (style GPT).</div>
+    </div>
+    <div id="m-tok-fixed" class="grid">
+      <div class="field field-sm">
+        <label>Tokens par image</label>
+        <input type="number" id="m-fixedTokens" min="0" />
+      </div>
+    </div>
+    <div id="m-tok-tile" class="grid-3" style="display:none">
+      <div class="field field-sm">
+        <label>Base (tokens)</label>
+        <input type="number" id="m-tileBase" min="0" />
+      </div>
+      <div class="field field-sm">
+        <label>Taille tuile (px)</label>
+        <input type="number" id="m-tileSize" min="1" />
+      </div>
+      <div class="field field-sm">
+        <label>Tokens par tuile</label>
+        <input type="number" id="m-tilePerTile" min="0" />
+      </div>
+    </div>
+
+    <h4>Presets de sortie (résolution / qualité)</h4>
+    <div class="preset-row preset-head">
+      <div>Label</div>
+      <div>Largeur</div>
+      <div>Hauteur</div>
+      <div>Qualité</div>
+      <div>Tokens</div>
+      <div></div>
+    </div>
+    <div class="preset-list" id="m-presets"></div>
+    <button class="ghost small" id="m-add-preset" style="margin-top:8px">+ Ajouter un preset</button>
+
     <details>
       <summary>Formule appliquée</summary>
       <div class="help" style="margin-top:8px; line-height:1.5">
-        <code>total = (tokens_texte × prix_texte_input) + N_in × (tokens_par_image_in × prix_image_input + flat_in) + N_out × (tokens_par_image_out × prix_image_output + flat_out)</code>
+        <code>total = tokens_texte × prix_texte + Σ(tokens_par_image_in_i) × prix_imgIn + N_in × flat_in + N_out × tokens_preset × prix_imgOut + N_out × flat_out</code>
       </div>
     </details>
 
     <div class="modal-actions">
-      <button class="ghost danger" id="m-delete">Supprimer</button>
+      <button class="ghost danger" id="m-delete">Supprimer le modèle</button>
       <div style="flex:1"></div>
       <button class="ghost" id="m-cancel">Annuler</button>
       <button id="m-save">Enregistrer</button>
@@ -326,8 +410,10 @@
 
 <script>
 (() => {
-  const STORAGE_KEY = 'imgcost.models.v1';
+  const STORAGE_KEY = 'imgcost.models.v2';
 
+  // Token tables embedded as default presets. These are placeholder/reasonable
+  // values; users can edit any of them in the model config modal.
   const DEFAULT_MODELS = [
     {
       id: 'gpt-image-2',
@@ -335,10 +421,19 @@
       textInputPer1M: 5.00,
       imageInputPer1M: 10.00,
       imageOutputPer1M: 40.00,
-      tokensPerInputImage: 1056,
-      tokensPerOutputImage: 1056,
       flatPerInputImage: 0,
       flatPerOutputImage: 0,
+      inputTokenizer: { mode: 'tile', base: 85, tileSize: 512, tilePerTile: 170 },
+      outputPresets: [
+        { id: 'p1', label: '1024×1024 low',     width: 1024, height: 1024, quality: 'low',    tokens: 272  },
+        { id: 'p2', label: '1024×1024 medium',  width: 1024, height: 1024, quality: 'medium', tokens: 1056 },
+        { id: 'p3', label: '1024×1024 high',    width: 1024, height: 1024, quality: 'high',   tokens: 4160 },
+        { id: 'p4', label: '1024×1536 medium',  width: 1024, height: 1536, quality: 'medium', tokens: 1584 },
+        { id: 'p5', label: '1024×1536 high',    width: 1024, height: 1536, quality: 'high',   tokens: 6240 },
+        { id: 'p6', label: '1536×1024 medium',  width: 1536, height: 1024, quality: 'medium', tokens: 1584 },
+        { id: 'p7', label: '1536×1024 high',    width: 1536, height: 1024, quality: 'high',   tokens: 6240 },
+      ],
+      selectedPresetId: 'p2',
     },
     {
       id: 'gemini-3-image',
@@ -346,10 +441,14 @@
       textInputPer1M: 0.30,
       imageInputPer1M: 0.30,
       imageOutputPer1M: 30.00,
-      tokensPerInputImage: 1290,
-      tokensPerOutputImage: 1290,
       flatPerInputImage: 0,
       flatPerOutputImage: 0,
+      inputTokenizer: { mode: 'fixed', fixedTokens: 1290 },
+      outputPresets: [
+        { id: 'p1', label: '1024×1024 standard', width: 1024, height: 1024, quality: 'standard', tokens: 1290 },
+        { id: 'p2', label: '2048×2048 standard', width: 2048, height: 2048, quality: 'standard', tokens: 1290 },
+      ],
+      selectedPresetId: 'p1',
     },
     {
       id: 'gemini-3-pro-image',
@@ -357,15 +456,19 @@
       textInputPer1M: 2.00,
       imageInputPer1M: 2.00,
       imageOutputPer1M: 96.00,
-      tokensPerInputImage: 1290,
-      tokensPerOutputImage: 1290,
       flatPerInputImage: 0,
       flatPerOutputImage: 0,
+      inputTokenizer: { mode: 'fixed', fixedTokens: 1290 },
+      outputPresets: [
+        { id: 'p1', label: '1024×1024 standard', width: 1024, height: 1024, quality: 'standard', tokens: 1290 },
+        { id: 'p2', label: '2048×2048 standard', width: 2048, height: 2048, quality: 'standard', tokens: 1290 },
+      ],
+      selectedPresetId: 'p1',
     },
   ];
 
   let models = loadModels();
-  let inputImages = []; // { name, width, height, size }
+  let inputImages = []; // { name, width, height, size, url }
 
   // ===== Storage =====
   function loadModels() {
@@ -389,14 +492,29 @@
     return Math.ceil(text.length / 4);
   }
 
+  function tokensForInputImage(model, w, h) {
+    const t = model.inputTokenizer || { mode: 'fixed', fixedTokens: 0 };
+    if (t.mode === 'tile') {
+      const tile = Math.max(1, t.tileSize || 512);
+      const cols = Math.ceil((w || 1) / tile);
+      const rows = Math.ceil((h || 1) / tile);
+      return (t.base || 0) + cols * rows * (t.tilePerTile || 0);
+    }
+    return t.fixedTokens || 0;
+  }
+
   // ===== Cost computation =====
-  function computeCost(model, textTokens, nInputImages, nOutputImages, outputTokensOverride) {
-    const tokOut = outputTokensOverride != null ? outputTokensOverride : model.tokensPerOutputImage;
-    const tokIn = model.tokensPerInputImage;
+  function computeCost(model, textTokens, images, nOutputImages) {
+    const preset = (model.outputPresets || []).find(p => p.id === model.selectedPresetId)
+                || (model.outputPresets || [])[0]
+                || { tokens: 0, label: '—' };
+    const tokOut = preset.tokens || 0;
+
+    const imgInTokens = images.reduce((sum, im) => sum + tokensForInputImage(model, im.width, im.height), 0);
 
     const textCost = (textTokens * model.textInputPer1M) / 1_000_000;
-    const imgInTokenCost = (nInputImages * tokIn * model.imageInputPer1M) / 1_000_000;
-    const imgInFlatCost = nInputImages * (model.flatPerInputImage || 0);
+    const imgInTokenCost = (imgInTokens * model.imageInputPer1M) / 1_000_000;
+    const imgInFlatCost = images.length * (model.flatPerInputImage || 0);
     const imgOutTokenCost = (nOutputImages * tokOut * model.imageOutputPer1M) / 1_000_000;
     const imgOutFlatCost = nOutputImages * (model.flatPerOutputImage || 0);
 
@@ -410,8 +528,9 @@
       imgOutTokenCost,
       imgOutFlatCost,
       textTokens,
-      imgInTokens: nInputImages * tokIn,
+      imgInTokens,
       imgOutTokens: nOutputImages * tokOut,
+      preset,
     };
   }
 
@@ -433,10 +552,7 @@
   function renderResults() {
     const promptText = $('prompt').value;
     const textTokens = estimateTextTokens(promptText);
-    const nIn = inputImages.length;
     const nOut = Math.max(1, parseInt($('n-images').value || '1', 10));
-    const outOverride = $('output-tokens-override').value;
-    const outOverrideNum = outOverride === '' ? null : Math.max(0, parseInt(outOverride, 10));
 
     $('char-count').textContent = promptText.length;
     $('token-count').textContent = textTokens;
@@ -450,14 +566,24 @@
     }
 
     for (const m of models) {
-      const c = computeCost(m, textTokens, nIn, nOut, outOverrideNum);
+      const c = computeCost(m, textTokens, inputImages, nOut);
+      const presetOptions = (m.outputPresets || []).map(p =>
+        `<option value="${p.id}" ${p.id === m.selectedPresetId ? 'selected' : ''}>${escapeHtml(p.label)} — ${p.tokens} tok</option>`
+      ).join('');
+
       const row = document.createElement('div');
       row.className = 'model-row';
       row.innerHTML = `
         <div class="head">
-          <div>
+          <div style="flex:1">
             <div class="name">${escapeHtml(m.name)}</div>
-            <div class="help">${nIn} image(s) input · ${nOut} image(s) output · ${textTokens} tok texte</div>
+            <div class="help">${inputImages.length} image(s) input · ${nOut} image(s) output · ${textTokens} tok texte</div>
+            <div class="preset-pick">
+              <label style="margin:0">Sortie :</label>
+              <select data-preset="${m.id}">
+                ${presetOptions || '<option disabled>Aucun preset</option>'}
+              </select>
+            </div>
           </div>
           <div style="text-align:right">
             <div class="total">${formatUSD(c.total)}</div>
@@ -478,6 +604,16 @@
 
     container.querySelectorAll('[data-edit]').forEach(btn => {
       btn.addEventListener('click', () => openModal(btn.dataset.edit));
+    });
+    container.querySelectorAll('[data-preset]').forEach(sel => {
+      sel.addEventListener('change', (e) => {
+        const m = models.find(x => x.id === sel.dataset.preset);
+        if (m) {
+          m.selectedPresetId = e.target.value;
+          saveModels();
+          renderResults();
+        }
+      });
     });
   }
 
@@ -529,10 +665,12 @@
 
   // ===== Modal =====
   let editingId = null;
+  let modalIsCreating = false;
+  let presetDraft = []; // working copy while modal is open
 
   function openModal(modelId) {
     const isNew = !modelId;
-    editingId = modelId;
+    modalIsCreating = isNew;
     let m;
     if (isNew) {
       m = {
@@ -541,29 +679,83 @@
         textInputPer1M: 0,
         imageInputPer1M: 0,
         imageOutputPer1M: 0,
-        tokensPerInputImage: 1024,
-        tokensPerOutputImage: 1024,
         flatPerInputImage: 0,
         flatPerOutputImage: 0,
+        inputTokenizer: { mode: 'fixed', fixedTokens: 1024 },
+        outputPresets: [{ id: 'p' + Date.now(), label: '1024×1024 standard', width: 1024, height: 1024, quality: 'standard', tokens: 1024 }],
+        selectedPresetId: null,
       };
+      m.selectedPresetId = m.outputPresets[0].id;
+      models.push(m);
     } else {
       m = models.find(x => x.id === modelId);
       if (!m) return;
     }
+    editingId = m.id;
+
     $('modal-title').textContent = isNew ? 'Nouveau modèle' : 'Configuration : ' + m.name;
     $('m-name').value = m.name;
     $('m-textIn').value = m.textInputPer1M;
     $('m-imgIn').value = m.imageInputPer1M;
     $('m-imgOut').value = m.imageOutputPer1M;
-    $('m-tokIn').value = m.tokensPerInputImage;
-    $('m-tokOut').value = m.tokensPerOutputImage;
     $('m-flatIn').value = m.flatPerInputImage || 0;
     $('m-flatOut').value = m.flatPerOutputImage || 0;
+
+    const tk = m.inputTokenizer || { mode: 'fixed' };
+    setTokMode(tk.mode || 'fixed');
+    $('m-fixedTokens').value = tk.fixedTokens || 0;
+    $('m-tileBase').value = tk.base || 0;
+    $('m-tileSize').value = tk.tileSize || 512;
+    $('m-tilePerTile').value = tk.tilePerTile || 0;
+
+    presetDraft = (m.outputPresets || []).map(p => ({ ...p }));
+    renderPresetEditor();
+
     $('m-delete').style.display = isNew ? 'none' : '';
-    $('m-delete').dataset.creating = isNew ? '1' : '';
-    $('m-save').dataset.creating = isNew ? '1' : '';
-    if (isNew) editingId = m.id, models.push(m);
     $('modal-bg').classList.add('show');
+  }
+
+  function setTokMode(mode) {
+    $('m-tok-fixed').style.display = mode === 'fixed' ? '' : 'none';
+    $('m-tok-tile').style.display = mode === 'tile' ? '' : 'none';
+    $('m-tok-mode').querySelectorAll('button').forEach(b => {
+      b.classList.toggle('active', b.dataset.mode === mode);
+    });
+  }
+  function getTokMode() {
+    return $('m-tok-mode').querySelector('button.active')?.dataset.mode || 'fixed';
+  }
+
+  function renderPresetEditor() {
+    const wrap = $('m-presets');
+    wrap.innerHTML = '';
+    presetDraft.forEach((p, idx) => {
+      const row = document.createElement('div');
+      row.className = 'preset-row';
+      row.innerHTML = `
+        <input type="text" data-k="label" value="${escapeHtml(p.label)}" />
+        <input type="number" data-k="width" min="0" value="${p.width || 0}" />
+        <input type="number" data-k="height" min="0" value="${p.height || 0}" />
+        <input type="text" data-k="quality" value="${escapeHtml(p.quality || '')}" />
+        <input type="number" data-k="tokens" min="0" value="${p.tokens || 0}" />
+        <button class="icon-btn" data-rm="${idx}" title="Supprimer">×</button>
+      `;
+      row.querySelectorAll('input').forEach(inp => {
+        inp.addEventListener('input', (e) => {
+          const k = inp.dataset.k;
+          if (k === 'width' || k === 'height' || k === 'tokens') {
+            presetDraft[idx][k] = parseInt(e.target.value, 10) || 0;
+          } else {
+            presetDraft[idx][k] = e.target.value;
+          }
+        });
+      });
+      row.querySelector('[data-rm]').addEventListener('click', () => {
+        presetDraft.splice(idx, 1);
+        renderPresetEditor();
+      });
+      wrap.appendChild(row);
+    });
   }
 
   function closeModal(save) {
@@ -574,20 +766,38 @@
         m.textInputPer1M = num($('m-textIn').value);
         m.imageInputPer1M = num($('m-imgIn').value);
         m.imageOutputPer1M = num($('m-imgOut').value);
-        m.tokensPerInputImage = num($('m-tokIn').value);
-        m.tokensPerOutputImage = num($('m-tokOut').value);
         m.flatPerInputImage = num($('m-flatIn').value);
         m.flatPerOutputImage = num($('m-flatOut').value);
+
+        const mode = getTokMode();
+        if (mode === 'fixed') {
+          m.inputTokenizer = { mode: 'fixed', fixedTokens: num($('m-fixedTokens').value) };
+        } else {
+          m.inputTokenizer = {
+            mode: 'tile',
+            base: num($('m-tileBase').value),
+            tileSize: Math.max(1, num($('m-tileSize').value) || 512),
+            tilePerTile: num($('m-tilePerTile').value),
+          };
+        }
+
+        m.outputPresets = presetDraft.length > 0
+          ? presetDraft.map(p => ({ ...p, id: p.id || ('p' + Math.random().toString(36).slice(2, 9)) }))
+          : [{ id: 'p1', label: 'default', width: 1024, height: 1024, quality: 'standard', tokens: 0 }];
+        if (!m.outputPresets.find(p => p.id === m.selectedPresetId)) {
+          m.selectedPresetId = m.outputPresets[0].id;
+        }
         saveModels();
       }
     } else {
-      // If we were creating and cancel, remove the freshly added model
-      if ($('m-save').dataset.creating === '1') {
+      if (modalIsCreating) {
         models = models.filter(x => x.id !== editingId);
       }
     }
     $('modal-bg').classList.remove('show');
     editingId = null;
+    modalIsCreating = false;
+    presetDraft = [];
     render();
   }
 
@@ -599,7 +809,6 @@
   // ===== Wiring =====
   $('prompt').addEventListener('input', render);
   $('n-images').addEventListener('input', render);
-  $('output-tokens-override').addEventListener('input', render);
 
   $('file-input').addEventListener('change', (e) => handleFiles(e.target.files));
   const dz = $('dropzone');
@@ -621,6 +830,21 @@
     }
   });
 
+  $('m-tok-mode').querySelectorAll('button').forEach(b => {
+    b.addEventListener('click', () => setTokMode(b.dataset.mode));
+  });
+  $('m-add-preset').addEventListener('click', () => {
+    presetDraft.push({
+      id: 'p' + Math.random().toString(36).slice(2, 9),
+      label: 'nouveau preset',
+      width: 1024,
+      height: 1024,
+      quality: 'standard',
+      tokens: 1024,
+    });
+    renderPresetEditor();
+  });
+
   $('m-cancel').addEventListener('click', () => closeModal(false));
   $('m-save').addEventListener('click', () => closeModal(true));
   $('m-delete').addEventListener('click', () => {
@@ -630,6 +854,8 @@
     saveModels();
     $('modal-bg').classList.remove('show');
     editingId = null;
+    modalIsCreating = false;
+    presetDraft = [];
     render();
   });
   $('modal-bg').addEventListener('click', (e) => {
