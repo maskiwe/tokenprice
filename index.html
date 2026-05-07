@@ -358,7 +358,7 @@
         <button data-mode="patch">Par patches (ViT)</button>
         <button data-mode="tile">Par tuiles</button>
       </div>
-      <div class="help">« Fixe » : N tokens par image, peu importe la taille (Gemini). « Par patches » : scale longest side à maxSide puis ⌊W/P⌋×⌊H/P⌋ patches, 1 patch = 1 token (GPT Image 2 — reverse-engineered : P=40, maxSide=1568). « Par tuiles » : base + ⌈W/T⌉×⌈H/T⌉ × tok/tuile (style GPT-4o vision).</div>
+      <div class="help">« Fixe » : N tokens par image, peu importe la taille (Gemini). « Par patches » : 1 patch = 1 token, avec budget max ; sous le seuil ⌈W/P⌉·⌈H/P⌉, au-dessus rescale par √(budget·P²/aire) puis ⌊·⌋ (GPT Image, P=32, budget=1536). « Par tuiles » : base + ⌈W/T⌉×⌈H/T⌉ × tok/tuile (style GPT-4o vision).</div>
     </div>
     <div id="m-tok-fixed" class="grid">
       <div class="field field-sm">
@@ -373,11 +373,11 @@
           <input type="number" id="m-patchSize" min="1" />
         </div>
         <div class="field field-sm">
-          <label>Max côté le + long (px, 0 = off)</label>
-          <input type="number" id="m-patchMaxLongest" min="0" />
+          <label>Budget max de patches (0 = off)</label>
+          <input type="number" id="m-patchMaxPatches" min="0" />
         </div>
       </div>
-      <div class="help">L'image est virtuellement redimensionnée pour que le côté le plus long ≤ maxSide (préserve le ratio), puis tokens = ⌊W/P⌋ × ⌊H/P⌋.</div>
+      <div class="help">Si <code>w·h ≤ P²·budget</code> : tokens = ⌈W/P⌉ × ⌈H/P⌉. Sinon l'image est rescalée par <code>sf = √(P²·budget / w·h)</code>, puis tokens = ⌊W·sf/P⌋ × ⌊H·sf/P⌋. Avec P=32 et budget=1536, le seuil est ≈ 1.57 MP et le plafond ≈ 1536 patches.</div>
       <div id="m-patch-preview" class="help" style="margin-top:8px; padding:8px 10px; background:var(--panel-2); border:1px solid var(--border); border-radius:6px;"></div>
     </div>
     <div id="m-tok-tile" style="display:none">
@@ -439,7 +439,7 @@
 
 <script>
 (() => {
-  const STORAGE_KEY = 'imgcost.models.v3';
+  const STORAGE_KEY = 'imgcost.models.v4';
 
   // Token tables embedded as default presets. These are placeholder/reasonable
   // values; users can edit any of them in the model config modal.
@@ -452,8 +452,10 @@
       imageOutputPer1M: 40.00,
       flatPerInputImage: 0,
       flatPerOutputImage: 0,
-      // Reverse-engineered (1700×1700 → 1521 tok = 39²): scale longest side to 1568, then floor(W/40) × floor(H/40).
-      inputTokenizer: { mode: 'patch', patchSize: 40, maxLongestSide: 1568 },
+      // GPT Image: 32px patches with a 1536-patch budget (≈ 1.57 MP).
+      //   if w·h ≤ patchSize²·budget : ceil(w/p)·ceil(h/p)
+      //   else : sf = √(budget·p²/(w·h)), then floor(w·sf/p)·floor(h·sf/p)
+      inputTokenizer: { mode: 'patch', patchSize: 32, maxPatches: 1536 },
       outputPresets: [
         { id: 'p1', label: '1024×1024 low',     width: 1024, height: 1024, quality: 'low',    tokens: 272  },
         { id: 'p2', label: '1024×1024 medium',  width: 1024, height: 1024, quality: 'medium', tokens: 1056 },
@@ -559,11 +561,17 @@
       return (t.base || 0) + cols * rows * (t.tilePerTile || 0);
     }
     if (t.mode === 'patch') {
-      const patch = Math.max(1, t.patchSize || 40);
-      const sized = applyResizeCaps(w, h, t.maxLongestSide || 0, 0);
-      if (sized.w === 0 || sized.h === 0) return 0;
-      const cols = Math.floor(sized.w / patch);
-      const rows = Math.floor(sized.h / patch);
+      const patch = Math.max(1, t.patchSize || 32);
+      const budget = Math.max(0, t.maxPatches || 0);
+      if (!w || !h) return 0;
+      const totalPx = w * h;
+      const budgetPx = budget > 0 ? patch * patch * budget : Infinity;
+      if (totalPx <= budgetPx) {
+        return Math.ceil(w / patch) * Math.ceil(h / patch);
+      }
+      const sf = Math.sqrt(budgetPx / totalPx);
+      const cols = Math.floor((w * sf) / patch);
+      const rows = Math.floor((h * sf) / patch);
       return cols * rows;
     }
     return t.fixedTokens || 0;
@@ -769,8 +777,8 @@
 
     const tk = m.inputTokenizer || { mode: 'fixed' };
     $('m-fixedTokens').value = tk.fixedTokens || 0;
-    $('m-patchSize').value = tk.patchSize || 40;
-    $('m-patchMaxLongest').value = tk.mode === 'patch' ? (tk.maxLongestSide || 0) : 1568;
+    $('m-patchSize').value = tk.patchSize || 32;
+    $('m-patchMaxPatches').value = tk.mode === 'patch' ? (tk.maxPatches || 0) : 1536;
     $('m-tileBase').value = tk.base || 0;
     $('m-tileSize').value = tk.tileSize || 512;
     $('m-tilePerTile').value = tk.tilePerTile || 0;
@@ -798,13 +806,22 @@
     if (mode === 'patch') updatePatchPreview();
   }
 
+  function patchScaledDims(w, h, patch, budget) {
+    if (!w || !h) return { w: 0, h: 0, scaled: false };
+    const totalPx = w * h;
+    const budgetPx = budget > 0 ? patch * patch * budget : Infinity;
+    if (totalPx <= budgetPx) return { w, h, scaled: false };
+    const sf = Math.sqrt(budgetPx / totalPx);
+    return { w: Math.round(w * sf), h: Math.round(h * sf), scaled: true };
+  }
+
   function updatePatchPreview() {
     const el = $('m-patch-preview');
     if (!el) return;
     const t = {
       mode: 'patch',
-      patchSize: Math.max(1, num($('m-patchSize').value) || 40),
-      maxLongestSide: Math.max(0, num($('m-patchMaxLongest').value)),
+      patchSize: Math.max(1, num($('m-patchSize').value) || 32),
+      maxPatches: Math.max(0, num($('m-patchMaxPatches').value)),
     };
     const fakeModel = { inputTokenizer: t };
     const samples = [
@@ -815,17 +832,17 @@
       { label: '4K (3840×2160)', w: 3840, h: 2160 },
     ];
     const lines = samples.map(s => {
-      const sized = applyResizeCaps(s.w, s.h, t.maxLongestSide, 0);
+      const sized = patchScaledDims(s.w, s.h, t.patchSize, t.maxPatches);
       const tok = tokensForInputImage(fakeModel, s.w, s.h);
-      const resized = (sized.w !== s.w || sized.h !== s.h) ? ` → ${sized.w}×${sized.h}` : '';
+      const resized = sized.scaled ? ` → ${sized.w}×${sized.h}` : '';
       return `<div>${s.label}${resized} : <b style="color:var(--text)">${tok} tok</b></div>`;
     });
     if (inputImages.length) {
       lines.push('<div style="margin-top:6px; color:var(--text)">Images uploadées :</div>');
       inputImages.forEach(im => {
-        const sized = applyResizeCaps(im.width, im.height, t.maxLongestSide, 0);
+        const sized = patchScaledDims(im.width, im.height, t.patchSize, t.maxPatches);
         const tok = tokensForInputImage(fakeModel, im.width, im.height);
-        const resized = (sized.w !== im.width || sized.h !== im.height) ? ` → ${sized.w}×${sized.h}` : '';
+        const resized = sized.scaled ? ` → ${sized.w}×${sized.h}` : '';
         lines.push(`<div>${escapeHtml(im.name)} (${im.width}×${im.height}${resized}) : <b style="color:var(--text)">${tok} tok</b></div>`);
       });
     }
@@ -920,8 +937,8 @@
         } else if (mode === 'patch') {
           m.inputTokenizer = {
             mode: 'patch',
-            patchSize: Math.max(1, num($('m-patchSize').value) || 40),
-            maxLongestSide: Math.max(0, num($('m-patchMaxLongest').value)),
+            patchSize: Math.max(1, num($('m-patchSize').value) || 32),
+            maxPatches: Math.max(0, num($('m-patchMaxPatches').value)),
           };
         } else {
           m.inputTokenizer = {
@@ -989,7 +1006,7 @@
   ['m-tileBase', 'm-tileSize', 'm-tilePerTile', 'm-maxLongest', 'm-targetShortest'].forEach(id => {
     $(id).addEventListener('input', updateTilePreview);
   });
-  ['m-patchSize', 'm-patchMaxLongest'].forEach(id => {
+  ['m-patchSize', 'm-patchMaxPatches'].forEach(id => {
     $(id).addEventListener('input', updatePatchPreview);
   });
   $('m-add-preset').addEventListener('click', () => {
