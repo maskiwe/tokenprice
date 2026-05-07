@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Image Generation Cost Calculator</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #161a22;
+    --panel-2: #1c2230;
+    --border: #2a3142;
+    --text: #e6e9ef;
+    --muted: #8b94a7;
+    --accent: #6ea8fe;
+    --accent-2: #8b5cf6;
+    --success: #34d399;
+    --danger: #f87171;
+    --warn: #fbbf24;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  body { min-height: 100vh; }
+  header {
+    padding: 20px 28px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: linear-gradient(90deg, rgba(110,168,254,0.06), rgba(139,92,246,0.06));
+  }
+  header h1 { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: 0.2px; }
+  header .sub { color: var(--muted); font-size: 13px; margin-top: 4px; }
+  .container {
+    display: grid;
+    grid-template-columns: minmax(360px, 1fr) minmax(420px, 1.2fr);
+    gap: 24px;
+    padding: 24px 28px;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+  @media (max-width: 980px) {
+    .container { grid-template-columns: 1fr; }
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+  }
+  .card h2 { margin: 0 0 14px 0; font-size: 15px; font-weight: 600; color: var(--text); }
+  label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+  textarea, input[type="text"], input[type="number"] {
+    width: 100%;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    padding: 10px 12px;
+    font-size: 14px;
+    font-family: inherit;
+    outline: none;
+  }
+  textarea { resize: vertical; min-height: 110px; }
+  textarea:focus, input:focus { border-color: var(--accent); }
+  .row { display: flex; gap: 12px; }
+  .row > * { flex: 1; }
+  .field { margin-bottom: 14px; }
+  .dropzone {
+    border: 2px dashed var(--border);
+    border-radius: 10px;
+    padding: 22px;
+    text-align: center;
+    color: var(--muted);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    background: var(--panel-2);
+  }
+  .dropzone:hover, .dropzone.drag { border-color: var(--accent); color: var(--text); background: rgba(110,168,254,0.05); }
+  .dropzone input { display: none; }
+  .thumbs { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px; margin-top: 12px; }
+  .thumb {
+    position: relative;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    aspect-ratio: 1;
+  }
+  .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .thumb .meta {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    padding: 4px 6px;
+    font-size: 10px;
+    background: rgba(0,0,0,0.55);
+    color: #fff;
+    text-align: center;
+  }
+  .thumb .rm {
+    position: absolute;
+    top: 4px; right: 4px;
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    background: rgba(0,0,0,0.6);
+    color: #fff;
+    border: 0;
+    cursor: pointer;
+    line-height: 1;
+    font-size: 14px;
+  }
+  .thumb .rm:hover { background: var(--danger); }
+  button {
+    background: var(--accent);
+    color: #0b1020;
+    border: 0;
+    border-radius: 8px;
+    padding: 9px 14px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  button:hover { filter: brightness(1.08); }
+  button.ghost {
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  button.ghost:hover { border-color: var(--accent); color: var(--accent); }
+  button.danger { background: var(--danger); color: #1a0606; }
+  button.small { padding: 6px 10px; font-size: 12px; }
+  .results { display: flex; flex-direction: column; gap: 12px; }
+  .model-row {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    background: var(--panel-2);
+  }
+  .model-row .head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+  }
+  .model-row .name { font-weight: 600; font-size: 15px; }
+  .model-row .total {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--success);
+    font-variant-numeric: tabular-nums;
+  }
+  .model-row .breakdown {
+    margin-top: 10px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 8px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .model-row .breakdown div { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; }
+  .model-row .breakdown b { color: var(--text); font-weight: 500; display: block; font-variant-numeric: tabular-nums; }
+  .model-row .actions { display: flex; gap: 6px; }
+  .toolbar { display: flex; gap: 8px; flex-wrap: wrap; }
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: rgba(110,168,254,0.12);
+    color: var(--accent);
+    font-size: 11px;
+    margin-left: 8px;
+  }
+  /* Modal */
+  .modal-bg {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.6);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 50;
+    padding: 20px;
+  }
+  .modal-bg.show { display: flex; }
+  .modal {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    width: 100%;
+    max-width: 640px;
+    max-height: 90vh;
+    overflow-y: auto;
+    padding: 22px;
+  }
+  .modal h3 { margin: 0 0 16px 0; }
+  .modal .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .modal .field-sm label { font-size: 12px; }
+  .modal .field-sm input { padding: 8px 10px; font-size: 13px; }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+  .help {
+    color: var(--muted);
+    font-size: 12px;
+    margin-top: 6px;
+  }
+  .stat-line { display: flex; justify-content: space-between; font-size: 13px; padding: 4px 0; }
+  .stat-line span:last-child { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .divider { height: 1px; background: var(--border); margin: 10px 0; }
+  details { margin-top: 8px; }
+  details summary { cursor: pointer; color: var(--muted); font-size: 12px; user-select: none; }
+  details summary:hover { color: var(--text); }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Image Generation Cost Calculator</h1>
+    <div class="sub">Estime le coût d'une génération d'image selon le modèle, le prompt et les images en entrée.</div>
+  </div>
+  <div class="toolbar">
+    <button class="ghost" id="btn-add-model">+ Modèle</button>
+    <button class="ghost" id="btn-reset">Réinitialiser</button>
+  </div>
+</header>
+
+<div class="container">
+  <!-- Inputs -->
+  <section class="card">
+    <h2>Entrées</h2>
+
+    <div class="field">
+      <label for="prompt">Prompt</label>
+      <textarea id="prompt" placeholder="Décris l'image à générer..."></textarea>
+      <div class="help"><span id="char-count">0</span> caractères · <span id="token-count">0</span> tokens estimés (≈ chars/4)</div>
+    </div>
+
+    <div class="field">
+      <label>Images en entrée</label>
+      <div class="dropzone" id="dropzone">
+        <div>Glisse-dépose des images ici, ou clique pour choisir</div>
+        <div class="help" style="margin-top:6px">PNG / JPG / WEBP — multiples acceptées</div>
+        <input type="file" id="file-input" accept="image/*" multiple />
+      </div>
+      <div class="thumbs" id="thumbs"></div>
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label for="n-images">Images à générer</label>
+        <input type="number" id="n-images" min="1" value="1" />
+      </div>
+      <div class="field">
+        <label for="output-tokens-override">Tokens par image générée (override)</label>
+        <input type="number" id="output-tokens-override" min="0" placeholder="auto (par modèle)" />
+        <div class="help">Laisse vide pour utiliser la valeur par modèle.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Results -->
+  <section class="card">
+    <h2>Estimation par modèle</h2>
+    <div class="results" id="results"></div>
+  </section>
+</div>
+
+<!-- Modal: edit model pricing -->
+<div class="modal-bg" id="modal-bg">
+  <div class="modal">
+    <h3 id="modal-title">Configuration du modèle</h3>
+
+    <div class="field">
+      <label>Nom du modèle</label>
+      <input type="text" id="m-name" />
+    </div>
+
+    <div class="grid">
+      <div class="field field-sm">
+        <label>Prix texte input ($ / 1M tokens)</label>
+        <input type="number" id="m-textIn" step="0.01" min="0" />
+      </div>
+      <div class="field field-sm">
+        <label>Prix image input ($ / 1M tokens)</label>
+        <input type="number" id="m-imgIn" step="0.01" min="0" />
+      </div>
+      <div class="field field-sm">
+        <label>Prix image output ($ / 1M tokens)</label>
+        <input type="number" id="m-imgOut" step="0.01" min="0" />
+      </div>
+      <div class="field field-sm">
+        <label>Tokens par image input</label>
+        <input type="number" id="m-tokIn" min="0" />
+      </div>
+      <div class="field field-sm">
+        <label>Tokens par image output</label>
+        <input type="number" id="m-tokOut" min="0" />
+      </div>
+      <div class="field field-sm">
+        <label>Flat $ par image input (en plus)</label>
+        <input type="number" id="m-flatIn" step="0.0001" min="0" />
+      </div>
+      <div class="field field-sm">
+        <label>Flat $ par image output (en plus)</label>
+        <input type="number" id="m-flatOut" step="0.0001" min="0" />
+      </div>
+    </div>
+
+    <details>
+      <summary>Formule appliquée</summary>
+      <div class="help" style="margin-top:8px; line-height:1.5">
+        <code>total = (tokens_texte × prix_texte_input) + N_in × (tokens_par_image_in × prix_image_input + flat_in) + N_out × (tokens_par_image_out × prix_image_output + flat_out)</code>
+      </div>
+    </details>
+
+    <div class="modal-actions">
+      <button class="ghost danger" id="m-delete">Supprimer</button>
+      <div style="flex:1"></div>
+      <button class="ghost" id="m-cancel">Annuler</button>
+      <button id="m-save">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const STORAGE_KEY = 'imgcost.models.v1';
+
+  const DEFAULT_MODELS = [
+    {
+      id: 'gpt-image-2',
+      name: 'GPT Image 2',
+      textInputPer1M: 5.00,
+      imageInputPer1M: 10.00,
+      imageOutputPer1M: 40.00,
+      tokensPerInputImage: 1056,
+      tokensPerOutputImage: 1056,
+      flatPerInputImage: 0,
+      flatPerOutputImage: 0,
+    },
+    {
+      id: 'gemini-3-image',
+      name: 'Gemini 3 Image (Nano Banana 2)',
+      textInputPer1M: 0.30,
+      imageInputPer1M: 0.30,
+      imageOutputPer1M: 30.00,
+      tokensPerInputImage: 1290,
+      tokensPerOutputImage: 1290,
+      flatPerInputImage: 0,
+      flatPerOutputImage: 0,
+    },
+    {
+      id: 'gemini-3-pro-image',
+      name: 'Gemini 3 Pro Image (Nano Banana Pro)',
+      textInputPer1M: 2.00,
+      imageInputPer1M: 2.00,
+      imageOutputPer1M: 96.00,
+      tokensPerInputImage: 1290,
+      tokensPerOutputImage: 1290,
+      flatPerInputImage: 0,
+      flatPerOutputImage: 0,
+    },
+  ];
+
+  let models = loadModels();
+  let inputImages = []; // { name, width, height, size }
+
+  // ===== Storage =====
+  function loadModels() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return structuredClone(DEFAULT_MODELS);
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed) || parsed.length === 0) return structuredClone(DEFAULT_MODELS);
+      return parsed;
+    } catch {
+      return structuredClone(DEFAULT_MODELS);
+    }
+  }
+  function saveModels() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(models));
+  }
+
+  // ===== Token estimation =====
+  function estimateTextTokens(text) {
+    if (!text) return 0;
+    return Math.ceil(text.length / 4);
+  }
+
+  // ===== Cost computation =====
+  function computeCost(model, textTokens, nInputImages, nOutputImages, outputTokensOverride) {
+    const tokOut = outputTokensOverride != null ? outputTokensOverride : model.tokensPerOutputImage;
+    const tokIn = model.tokensPerInputImage;
+
+    const textCost = (textTokens * model.textInputPer1M) / 1_000_000;
+    const imgInTokenCost = (nInputImages * tokIn * model.imageInputPer1M) / 1_000_000;
+    const imgInFlatCost = nInputImages * (model.flatPerInputImage || 0);
+    const imgOutTokenCost = (nOutputImages * tokOut * model.imageOutputPer1M) / 1_000_000;
+    const imgOutFlatCost = nOutputImages * (model.flatPerOutputImage || 0);
+
+    const total = textCost + imgInTokenCost + imgInFlatCost + imgOutTokenCost + imgOutFlatCost;
+
+    return {
+      total,
+      textCost,
+      imgInTokenCost,
+      imgInFlatCost,
+      imgOutTokenCost,
+      imgOutFlatCost,
+      textTokens,
+      imgInTokens: nInputImages * tokIn,
+      imgOutTokens: nOutputImages * tokOut,
+    };
+  }
+
+  function formatUSD(n) {
+    if (n === 0) return '$0.0000';
+    if (n < 0.0001) return '< $0.0001';
+    if (n < 1) return '$' + n.toFixed(4);
+    return '$' + n.toFixed(3);
+  }
+
+  // ===== Rendering =====
+  const $ = (id) => document.getElementById(id);
+
+  function render() {
+    renderResults();
+    renderThumbs();
+  }
+
+  function renderResults() {
+    const promptText = $('prompt').value;
+    const textTokens = estimateTextTokens(promptText);
+    const nIn = inputImages.length;
+    const nOut = Math.max(1, parseInt($('n-images').value || '1', 10));
+    const outOverride = $('output-tokens-override').value;
+    const outOverrideNum = outOverride === '' ? null : Math.max(0, parseInt(outOverride, 10));
+
+    $('char-count').textContent = promptText.length;
+    $('token-count').textContent = textTokens;
+
+    const container = $('results');
+    container.innerHTML = '';
+
+    if (models.length === 0) {
+      container.innerHTML = '<div class="help">Aucun modèle configuré. Ajoute-en un avec « + Modèle ».</div>';
+      return;
+    }
+
+    for (const m of models) {
+      const c = computeCost(m, textTokens, nIn, nOut, outOverrideNum);
+      const row = document.createElement('div');
+      row.className = 'model-row';
+      row.innerHTML = `
+        <div class="head">
+          <div>
+            <div class="name">${escapeHtml(m.name)}</div>
+            <div class="help">${nIn} image(s) input · ${nOut} image(s) output · ${textTokens} tok texte</div>
+          </div>
+          <div style="text-align:right">
+            <div class="total">${formatUSD(c.total)}</div>
+            <div class="actions" style="justify-content:flex-end; margin-top:6px">
+              <button class="ghost small" data-edit="${m.id}">Configurer</button>
+            </div>
+          </div>
+        </div>
+        <div class="breakdown">
+          <div>Texte input<b>${formatUSD(c.textCost)}</b><span>${c.textTokens} tok</span></div>
+          <div>Images input<b>${formatUSD(c.imgInTokenCost + c.imgInFlatCost)}</b><span>${c.imgInTokens} tok${c.imgInFlatCost ? ' + flat' : ''}</span></div>
+          <div>Images output<b>${formatUSD(c.imgOutTokenCost + c.imgOutFlatCost)}</b><span>${c.imgOutTokens} tok${c.imgOutFlatCost ? ' + flat' : ''}</span></div>
+          <div>Coût / image générée<b>${formatUSD(c.total / Math.max(1, nOut))}</b><span>moyenne</span></div>
+        </div>
+      `;
+      container.appendChild(row);
+    }
+
+    container.querySelectorAll('[data-edit]').forEach(btn => {
+      btn.addEventListener('click', () => openModal(btn.dataset.edit));
+    });
+  }
+
+  function renderThumbs() {
+    const wrap = $('thumbs');
+    wrap.innerHTML = '';
+    inputImages.forEach((img, idx) => {
+      const el = document.createElement('div');
+      el.className = 'thumb';
+      el.innerHTML = `
+        <img src="${img.url}" alt="${escapeHtml(img.name)}" />
+        <button class="rm" data-rm="${idx}" title="Retirer">×</button>
+        <div class="meta">${img.width}×${img.height}</div>
+      `;
+      wrap.appendChild(el);
+    });
+    wrap.querySelectorAll('[data-rm]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const i = parseInt(btn.dataset.rm, 10);
+        URL.revokeObjectURL(inputImages[i].url);
+        inputImages.splice(i, 1);
+        render();
+      });
+    });
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+  }
+
+  // ===== Image handling =====
+  async function handleFiles(fileList) {
+    const files = Array.from(fileList).filter(f => f.type.startsWith('image/'));
+    for (const file of files) {
+      const url = URL.createObjectURL(file);
+      const dim = await getImageDimensions(url);
+      inputImages.push({ name: file.name, size: file.size, url, width: dim.w, height: dim.h });
+    }
+    render();
+  }
+  function getImageDimensions(url) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
+      img.onerror = () => resolve({ w: 0, h: 0 });
+      img.src = url;
+    });
+  }
+
+  // ===== Modal =====
+  let editingId = null;
+
+  function openModal(modelId) {
+    const isNew = !modelId;
+    editingId = modelId;
+    let m;
+    if (isNew) {
+      m = {
+        id: 'custom-' + Date.now(),
+        name: 'Nouveau modèle',
+        textInputPer1M: 0,
+        imageInputPer1M: 0,
+        imageOutputPer1M: 0,
+        tokensPerInputImage: 1024,
+        tokensPerOutputImage: 1024,
+        flatPerInputImage: 0,
+        flatPerOutputImage: 0,
+      };
+    } else {
+      m = models.find(x => x.id === modelId);
+      if (!m) return;
+    }
+    $('modal-title').textContent = isNew ? 'Nouveau modèle' : 'Configuration : ' + m.name;
+    $('m-name').value = m.name;
+    $('m-textIn').value = m.textInputPer1M;
+    $('m-imgIn').value = m.imageInputPer1M;
+    $('m-imgOut').value = m.imageOutputPer1M;
+    $('m-tokIn').value = m.tokensPerInputImage;
+    $('m-tokOut').value = m.tokensPerOutputImage;
+    $('m-flatIn').value = m.flatPerInputImage || 0;
+    $('m-flatOut').value = m.flatPerOutputImage || 0;
+    $('m-delete').style.display = isNew ? 'none' : '';
+    $('m-delete').dataset.creating = isNew ? '1' : '';
+    $('m-save').dataset.creating = isNew ? '1' : '';
+    if (isNew) editingId = m.id, models.push(m);
+    $('modal-bg').classList.add('show');
+  }
+
+  function closeModal(save) {
+    if (save) {
+      const m = models.find(x => x.id === editingId);
+      if (m) {
+        m.name = $('m-name').value.trim() || 'Sans nom';
+        m.textInputPer1M = num($('m-textIn').value);
+        m.imageInputPer1M = num($('m-imgIn').value);
+        m.imageOutputPer1M = num($('m-imgOut').value);
+        m.tokensPerInputImage = num($('m-tokIn').value);
+        m.tokensPerOutputImage = num($('m-tokOut').value);
+        m.flatPerInputImage = num($('m-flatIn').value);
+        m.flatPerOutputImage = num($('m-flatOut').value);
+        saveModels();
+      }
+    } else {
+      // If we were creating and cancel, remove the freshly added model
+      if ($('m-save').dataset.creating === '1') {
+        models = models.filter(x => x.id !== editingId);
+      }
+    }
+    $('modal-bg').classList.remove('show');
+    editingId = null;
+    render();
+  }
+
+  function num(v) {
+    const n = parseFloat(v);
+    return isNaN(n) ? 0 : n;
+  }
+
+  // ===== Wiring =====
+  $('prompt').addEventListener('input', render);
+  $('n-images').addEventListener('input', render);
+  $('output-tokens-override').addEventListener('input', render);
+
+  $('file-input').addEventListener('change', (e) => handleFiles(e.target.files));
+  const dz = $('dropzone');
+  dz.addEventListener('click', () => $('file-input').click());
+  dz.addEventListener('dragover', (e) => { e.preventDefault(); dz.classList.add('drag'); });
+  dz.addEventListener('dragleave', () => dz.classList.remove('drag'));
+  dz.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dz.classList.remove('drag');
+    handleFiles(e.dataTransfer.files);
+  });
+
+  $('btn-add-model').addEventListener('click', () => openModal(null));
+  $('btn-reset').addEventListener('click', () => {
+    if (confirm('Réinitialiser tous les modèles aux valeurs par défaut ?')) {
+      models = structuredClone(DEFAULT_MODELS);
+      saveModels();
+      render();
+    }
+  });
+
+  $('m-cancel').addEventListener('click', () => closeModal(false));
+  $('m-save').addEventListener('click', () => closeModal(true));
+  $('m-delete').addEventListener('click', () => {
+    if (!editingId) return;
+    if (!confirm('Supprimer ce modèle ?')) return;
+    models = models.filter(x => x.id !== editingId);
+    saveModels();
+    $('modal-bg').classList.remove('show');
+    editingId = null;
+    render();
+  });
+  $('modal-bg').addEventListener('click', (e) => {
+    if (e.target === $('modal-bg')) closeModal(false);
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>
